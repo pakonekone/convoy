@@ -65,9 +65,9 @@ const definitions: Record<StepRunnerId, StepRunnerDefinition> = {
     capabilities: {
       liveAttach: false,
       takeover: false,
-      writeSteps: false,
-      // Its tool flags are fixed and exclude Bash (see claude-code.ts).
-      verifySteps: false,
+      // Tool flags follow the step's mode, with Bash under Convoy's bash policy (see claude-code.ts).
+      writeSteps: true,
+      verifySteps: true,
       modelFanout: false,
       globalModelOverride: false,
       advisor: false,

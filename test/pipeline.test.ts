@@ -1129,8 +1129,10 @@ describe("claude-code runner steps", () => {
     expect(steps[0]?.model).toContain("/")
   })
 
-  test("rejects claude-code on a step that can write (v1 is audit-only)", () => {
-    expect(() => agentSteps({ steps: [{ agent: "implementer", runner: "claude-code" }] })).toThrow(/read-only/)
+  test("accepts claude-code on a step that can write", () => {
+    const steps = agentSteps({ steps: [{ agent: "implementer", runner: "claude-code", model: "opus" }] })
+    expect(steps[0]?.runner).toBe("claude-code")
+    expect(steps[0]?.readOnly).toBeFalsy()
   })
 
   test("accepts claude-code inside a parallel block (forced read-only)", () => {
@@ -1151,8 +1153,10 @@ describe("claude-code runner steps", () => {
     expect(claude?.readOnly).toBe(true)
   })
 
-  test("rejects claude-code on a verifying step, which needs bash it cannot give", () => {
-    expect(() => agentSteps({ steps: [{ agent: "review-validator", name: "validator", runner: "claude-code", verify: true }] })).toThrow(/can't run commands/)
+  test("accepts claude-code on a verifying step, which keeps bash under the policy", () => {
+    const steps = agentSteps({ steps: [{ agent: "review-validator", name: "validator", runner: "claude-code", verify: true }] })
+    expect(steps[0]?.readOnly).toBe(true)
+    expect(steps[0]?.verify).toBe(true)
   })
 
   test("accepts claude-code on a verifying step forced read-only, where bash is dropped anyway", () => {

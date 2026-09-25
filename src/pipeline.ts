@@ -348,7 +348,7 @@ export type AgentStepSpec = {
   model?: string
   /** Fans this step out into one concurrent, forced-read-only invocation per model. Mutually exclusive with `model`. */
   models?: string[]
-  /** Execution engine. Default is OpenCode; "claude-code" spawns the local `claude` CLI (read-only audit steps only). */
+  /** Execution engine. Default is OpenCode; "claude-code" spawns the local `claude` CLI. */
   runner?: "opencode" | StepRunner
   /**
    * Advising model consulted at this step's decision points, or `false` to run

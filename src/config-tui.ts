@@ -2016,7 +2016,9 @@ export type ToggleStepRunnerResult =
 export function toggleStepRunnerSpec(spec: AgentStepSpec, supportsReadOnlyRunner: boolean): ToggleStepRunnerResult {
   const current = stepRunnerFor(spec.runner)
   if (current.id === "opencode" && spec.models !== undefined) return { ok: false, reason: "model-fanout" }
-  if (current.id === "opencode" && !supportsReadOnlyRunner) return { ok: false, reason: "writable-agent" }
+  if (current.id === "opencode" && !supportsReadOnlyRunner && !stepRunnerFor("claude-code").capabilities.writeSteps) {
+    return { ok: false, reason: "writable-agent" }
+  }
 
   const next = { ...spec }
   const clearedModel = next.model !== undefined

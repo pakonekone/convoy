@@ -11,6 +11,8 @@ import {
   claudePrompt,
   claudeResumeArgs,
   claudeTokens,
+  claudeToolArgs,
+  claudeToolMode,
   describeClaudeEvent,
   ensureClaudeAvailable,
   ndjsonLines,
@@ -282,6 +284,63 @@ describe("prompt and exact read-only envelope", () => {
     ])
   })
 
+  test("the tool mode follows the step: writable, verifying read-only, or plain read-only", () => {
+    expect(claudeToolMode({ readOnly: false })).toBe("write")
+    expect(claudeToolMode({})).toBe("write")
+    expect(claudeToolMode({ readOnly: true, verify: true })).toBe("verify")
+    expect(claudeToolMode({ readOnly: true })).toBe("read-only")
+  })
+
+  test("read-only tool args are the unchanged audit envelope", () => {
+    expect(claudeToolArgs("read-only", { "git status*": "allow" })).toEqual([
+      "--safe-mode",
+      "--tools",
+      "Read,Glob,Grep",
+      "--disallowedTools",
+      "Write,Edit,NotebookEdit,Bash,Task,WebFetch,WebSearch",
+      "--permission-mode",
+      "dontAsk",
+    ])
+  })
+
+  test("writable steps get edit tools and bash under the policy, deny rules intact", () => {
+    const policy = { "git push*": "deny", "git status*": "allow", "npm test*": "allow", "*": "ask" } as const
+    expect(claudeToolArgs("write", policy)).toEqual([
+      "--safe-mode",
+      "--setting-sources",
+      "project",
+      "--tools",
+      "Read,Glob,Grep,Edit,Write,NotebookEdit,Bash",
+      "--allowedTools",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "Bash(git status*)",
+      "Bash(npm test*)",
+      "--disallowedTools",
+      "Task",
+      "WebFetch",
+      "WebSearch",
+      "Bash(git push*)",
+      "--permission-mode",
+      "dontAsk",
+    ])
+  })
+
+  test("verifying steps get bash under the policy but no write tools", () => {
+    const args = claudeToolArgs("verify", { "git commit*": "deny", "bun test*": "allow", "*": "ask" })
+    expect(args.slice(args.indexOf("--tools"), args.indexOf("--tools") + 2)).toEqual(["--tools", "Read,Glob,Grep,Bash"])
+    expect(args).toContain("Bash(bun test*)")
+    const disallowed = args.slice(args.indexOf("--disallowedTools") + 1, args.indexOf("--permission-mode"))
+    expect(disallowed).toEqual(["Write", "Edit", "NotebookEdit", "Task", "WebFetch", "WebSearch", "Bash(git commit*)"])
+    expect(args.slice(args.indexOf("--allowedTools") + 1, args.indexOf("--disallowedTools"))).toEqual(["Bash(bun test*)"])
+  })
+
+  test("interactive resume reuses a recorded tool envelope", () => {
+    const envelope = claudeToolArgs("write", { "git status*": "allow" })
+    expect(claudeResumeArgs("session-9", ["/runs/r1"], envelope)).toEqual([...envelope, "--add-dir", "/runs/r1", "--resume", "session-9"])
+  })
+
   test("external files do not expose their parent directory", () => {
     const args = claudeArgs({
       systemPromptPath: "/runs/r1/prompt.md",
@@ -496,6 +555,53 @@ describe("promptClaudePhase lifecycle", () => {
       exitCode = 1
       resolveExit?.(1)
       await expect(execution).rejects.toThrow("before reporting a result")
+    } finally {
+      await Promise.all([rm(runDir, { recursive: true, force: true }), rm(targetDir, { recursive: true, force: true })])
+    }
+  })
+
+  test("a writable step spawns claude with the write envelope and records it for resume", async () => {
+    const runDir = await executionDir()
+    const targetDir = await mkdtemp(join(tmpdir(), "convoy-claude-target-"))
+    let command: string[] = []
+    try {
+      await promptClaudePhase({
+        phase: { ...claudePhase, name: "implementer", agentName: "implementer", readOnly: false },
+        workspace: { dir: runDir, runID: "test" },
+        targetDir,
+        prompt: "Implement",
+        attachments: [],
+        attempt: 1,
+        progress: noopProgress,
+        shutdown: executionShutdown(new AbortController()),
+        permissions: { allow: ["uv run pytest*"], deny: ["make deploy*"] },
+        deps: {
+          async stageAttachments(attachments) {
+            return [...attachments]
+          },
+          spawn(cmd) {
+            command = cmd
+            return {
+              stdout: textStream(
+                JSON.stringify({ type: "system", subtype: "init", session_id: "s-write" }),
+                JSON.stringify({ type: "result", subtype: "success", result: "done" }),
+              ),
+              stderr: textStream(),
+              exited: Promise.resolve(0),
+              exitCode: 0,
+              kill() {},
+            }
+          },
+        },
+      })
+
+      expect(command).toContain("Edit")
+      expect(command).toContain("Bash(uv run pytest*)")
+      expect(command).toContain("Bash(git commit*)")
+      expect(command).toContain("Bash(make deploy*)")
+      expect(command.indexOf("Bash(git commit*)")).toBeGreaterThan(command.indexOf("--disallowedTools"))
+      const recorded = JSON.parse(await readFile(join(runDir, "logs", "claude-s-write-tools.json"), "utf8"))
+      expect(recorded).toEqual(command.slice(command.indexOf("--safe-mode"), command.indexOf("dontAsk") + 1))
     } finally {
       await Promise.all([rm(runDir, { recursive: true, force: true }), rm(targetDir, { recursive: true, force: true })])
     }

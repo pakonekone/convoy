@@ -25,7 +25,8 @@ describe("stepRunnerFor", () => {
     expect(runner.displayName).toBe("Claude Code")
     expect(runner.capabilities.advisor).toBe(false)
     expect(runner.capabilities.liveAttach).toBe(false)
-    expect(runner.capabilities.writeSteps).toBe(false)
+    expect(runner.capabilities.writeSteps).toBe(true)
+    expect(runner.capabilities.verifySteps).toBe(true)
     expect(runner.capabilities.modelFanout).toBe(false)
   })
 

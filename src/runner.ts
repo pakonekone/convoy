@@ -62,7 +62,7 @@ import {
 import { discoverProjectContextFiles } from "./project-context"
 import { createStepRunnerImpl, stepRunnerFor, stepRunnerModel, type StepRunnerId, type StepRunnerImpl } from "./step-runners"
 import { createTerminalInput, type TerminalInput } from "./terminal-input"
-import type { AgentSpec, AgentStep, DeliverableContract, HookSet, HookSpec, Pipeline, ResolvedGoalPlan, RunOptions, Step } from "./types"
+import type { AgentSpec, AgentStep, DeliverableContract, HookSet, HookSpec, PermissionAdditions, Pipeline, ResolvedGoalPlan, RunOptions, Step } from "./types"
 import { consensusStep, loadQualityRubricWeights, parseQualityScoreReport, qualityDimensionWeights, type QualityDimension, type QualityScore } from "./quality-score"
 import { addTokens, emptyTokens, tokensFromValue } from "./usage"
 import { cleanupWorkspace, createWorkspace, opencodeConfigDir, resumeWorkspace, type Workspace, writeSummary } from "./workspace"
@@ -1651,6 +1651,8 @@ type PreparedPhaseRun = {
   model: ModelSelection
   /** Resolved exactly once, here, and threaded through unchanged: re-resolving would re-arm defaults over `maxPhaseCost: false`. */
   loopGuard: LoopGuardConfig
+  /** Project bash-policy additions; OpenCode receives them through its config, Claude Code steps through CLI permission rules. */
+  permissions?: PermissionAdditions
 }
 
 export async function preparePhaseRun(
@@ -1681,7 +1683,7 @@ export async function preparePhaseRun(
   const prompt = buildPhasePrompt(workspace, phase)
   const model = selectedModel(phase, options.modelOverride)
 
-  return { attachments, prompt, model, loopGuard: resolveLoopGuard(options.loopGuard) }
+  return { attachments, prompt, model, loopGuard: resolveLoopGuard(options.loopGuard), permissions: options.permissions }
 }
 
 /** Best-effort dynamic attachment: history stays out of frozen pipeline metadata. */
@@ -2306,8 +2308,8 @@ async function executeOpenCodePhaseAttempt(input: PhaseAttemptInput): Promise<Ph
 
 /**
  * The claude-code twin of the OpenCode attempt: same prompt, same attempt log
- * shape, same report contract (read-only step → the report is the final
- * assistant text), executed by the local `claude` CLI instead of a session.
+ * shape, same report contract (report file first, final assistant text as the
+ * fallback), executed by the local `claude` CLI instead of a session.
  */
 async function executeClaudeCodePhaseAttempt(input: PhaseAttemptInput): Promise<PhaseAttemptResult> {
   const result = await promptClaudePhase({
@@ -2320,6 +2322,7 @@ async function executeClaudeCodePhaseAttempt(input: PhaseAttemptInput): Promise<
     progress: input.progress,
     shutdown: input.shutdown,
     ...(input.sessionRef ? { sessionRef: input.sessionRef } : {}),
+    ...(input.prepared.permissions ? { permissions: input.prepared.permissions } : {}),
   })
   return {
     assistantText: result.assistantText,

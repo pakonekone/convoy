@@ -179,9 +179,9 @@ export type AgentSpec = {
 
 /**
  * Which engine executes an agent step. The default (absent) is the OpenCode
- * SDK; "claude-code" spawns the user's local `claude` CLI instead — read-only
- * audit steps only, authenticated by whatever that install already uses
- * (subscription login or API key).
+ * SDK; "claude-code" spawns the user's local `claude` CLI instead,
+ * authenticated by whatever that install already uses (subscription login or
+ * API key).
  */
 export type StepRunner = Exclude<StepRunnerId, "opencode">
 

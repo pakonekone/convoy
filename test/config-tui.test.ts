@@ -265,13 +265,13 @@ describe("runner selection", () => {
     expect(spec).toEqual({ agent: "bug-auditor", models: ["a/b", "c/d"] })
   })
 
-  test("summarizes Claude Code's model and read-only contract", () => {
-    expect(stepValueSummary({ agent: "bug-auditor", runner: "claude-code" })).toBe("claude-code/default · read-only")
-    expect(stepValueSummary({ agent: "bug-auditor", runner: "claude-code", model: "opus" })).toBe("claude-code/opus · read-only")
+  test("summarizes Claude Code's model", () => {
+    expect(stepValueSummary({ agent: "bug-auditor", runner: "claude-code" })).toBe("claude-code/default")
+    expect(stepValueSummary({ agent: "bug-auditor", runner: "claude-code", model: "opus" })).toBe("claude-code/opus")
   })
 
-  test("refuses to switch a writable sequential step to Claude Code", () => {
-    expect(toggleStepRunnerSpec({ agent: "implementer" }, false)).toEqual({ ok: false, reason: "writable-agent" })
+  test("switches a writable sequential step to Claude Code", () => {
+    expect(toggleStepRunnerSpec({ agent: "implementer" }, false)).toEqual({ ok: true, spec: { agent: "implementer", runner: "claude-code" }, clearedModel: false })
   })
 
   test("preserves a configured full Claude model ID when the picker opens", () => {

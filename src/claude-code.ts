@@ -5,20 +5,22 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import type { FilePartInput } from "@opencode-ai/sdk/v2"
 
 import { loadAgentPrompt } from "./agents"
+import { bashPolicy } from "./bash-policy"
 import { log } from "./log"
 import { openSessionCommand, shellQuote, type SessionWindowBackend } from "./opencode"
 import type { ProgressMessage, ProgressTokens, ProgressUI } from "./progress"
 import { stepRunnerFor } from "./step-runners"
-import type { AgentStep, Pipeline } from "./types"
+import type { AgentStep, PermissionAdditions, Pipeline } from "./types"
 import type { Workspace } from "./workspace"
 
 /**
  * Runner for `runner: claude-code` steps: spawns the user's local `claude`
  * CLI headless instead of an OpenCode session. Authentication is whatever
  * that install already uses (subscription login or ANTHROPIC_API_KEY), so
- * Convoy never touches credentials. v1 supports read-only audit steps only —
- * the CLI runs with read/search tools exclusively, and the report is the
- * final assistant text, persisted by Convoy like any other read-only step.
+ * Convoy never touches credentials. The tool envelope mirrors agents.ts'
+ * OpenCode agent config for the step's mode: read-only audits get read/search
+ * tools only, verifying steps add bash under Convoy's bash policy, and
+ * writable steps add edit/write too. Convoy still owns the phase commit.
  */
 
 export const claudeBinaryName = "claude"
@@ -35,6 +37,50 @@ const readOnlyToolArgs = [
   "--permission-mode",
   "dontAsk",
 ]
+
+export type ClaudeToolMode = "read-only" | "verify" | "write"
+
+/** The step's tool envelope, derived exactly like the OpenCode agent config: writable, verifying read-only, or plain read-only. */
+export function claudeToolMode(phase: Pick<AgentStep, "readOnly" | "verify">): ClaudeToolMode {
+  if (!phase.readOnly) return "write"
+  return phase.verify ? "verify" : "read-only"
+}
+
+/**
+ * CLI arguments for one tool envelope. Headless runs have nobody to answer a
+ * prompt, so `dontAsk` denies anything the policy does not allow: Convoy's
+ * "ask" tier becomes deny here, while its denylist (push, commit, installs,
+ * sudo…) stays deny and outranks any allow, as in the OpenCode config.
+ * `--safe-mode` does not drop permission rules, so personal (user/local)
+ * settings are skipped: an allow there would silently widen the policy.
+ * Project settings stay, since they are reviewed with the repo.
+ */
+export function claudeToolArgs(mode: ClaudeToolMode, bash: Record<string, "allow" | "deny" | "ask"> = {}): string[] {
+  if (mode === "read-only") return [...readOnlyToolArgs]
+  const rules = (decision: "allow" | "deny") =>
+    Object.entries(bash)
+      .filter(([pattern, value]) => value === decision && pattern !== "*")
+      .map(([pattern]) => `Bash(${pattern})`)
+  const writeTools = mode === "write" ? ["Edit", "Write", "NotebookEdit"] : []
+  return [
+    "--safe-mode",
+    "--setting-sources",
+    "project",
+    "--tools",
+    [allowedTools, ...writeTools, "Bash"].join(","),
+    "--allowedTools",
+    ...writeTools,
+    ...rules("allow"),
+    "--disallowedTools",
+    ...(mode === "write" ? [] : ["Write", "Edit", "NotebookEdit"]),
+    "Task",
+    "WebFetch",
+    "WebSearch",
+    ...rules("deny"),
+    "--permission-mode",
+    "dontAsk",
+  ]
+}
 
 export function pipelineUsesClaudeCode(pipeline: Pipeline): boolean {
   return pipeline.steps.some((step) => step.type === "agent" && step.runner === "claude-code")
@@ -246,6 +292,8 @@ export function claudeArgs(input: {
   targetDir: string
   model: string
   attachments: readonly FilePartInput[]
+  /** The step's tool envelope; defaults to the read-only audit envelope. */
+  toolArgs?: readonly string[]
 }): string[] {
   const readableDirectories = claudeReadableDirectories(input.attachments, input.targetDir, input.runDir)
 
@@ -259,7 +307,7 @@ export function claudeArgs(input: {
     input.systemPromptPath,
     "--add-dir",
     ...readableDirectories,
-    ...readOnlyToolArgs,
+    ...(input.toolArgs ?? readOnlyToolArgs),
     ...(input.model ? ["--model", input.model] : []),
   ]
 }
@@ -367,6 +415,8 @@ export async function promptClaudePhase(input: {
   progress: ProgressUI
   shutdown: ClaudeShutdown
   sessionRef?: { id?: string }
+  /** Project additions to the bash policy used by verifying and writable steps. */
+  permissions?: PermissionAdditions
   deps?: ClaudeExecutionDeps
 }): Promise<ClaudePhaseResult> {
   input.shutdown.throwIfRequested()
@@ -377,12 +427,15 @@ export async function promptClaudePhase(input: {
   const stageDir = join(input.workspace.dir, "attachments", encodeURIComponent(input.phase.name), String(input.attempt))
   const attachments = await deps.stageAttachments(input.attachments, input.targetDir, input.workspace.dir, stageDir)
   const readableDirectories = claudeReadableDirectories(attachments, input.targetDir, input.workspace.dir)
+  const mode = claudeToolMode(input.phase)
+  const toolArgs = claudeToolArgs(mode, mode === "read-only" ? {} : bashPolicy(input.targetDir, input.permissions))
   const args = claudeArgs({
     systemPromptPath,
     runDir: input.workspace.dir,
     targetDir: input.targetDir,
     model: input.phase.model,
     attachments,
+    toolArgs,
   })
   const prompt = claudePrompt(input.prompt, attachments)
 
@@ -418,6 +471,7 @@ export async function promptClaudePhase(input: {
         if (signal.type === "session") {
           sessionID = signal.sessionID
           await writeClaudeSessionDirectories(input.workspace.dir, signal.sessionID, readableDirectories)
+          await writeClaudeSessionToolArgs(input.workspace.dir, signal.sessionID, toolArgs)
           if (input.sessionRef) input.sessionRef.id = signal.sessionID
           input.progress.phaseSession(input.phase.name, signal.sessionID)
           log.info(`[${input.phase.name}] claude session: ${signal.sessionID}`)
@@ -553,12 +607,14 @@ export async function* ndjsonLines(stream: ReadableStream<Uint8Array>): AsyncGen
  */
 export async function openClaudeSessionWindow(input: { targetDir: string; sessionID: string; runDir: string }): Promise<SessionWindowBackend> {
   const readableDirectories = await readClaudeSessionDirectories(input.runDir, input.sessionID)
-  const command = [claudeBinaryName, ...claudeResumeArgs(input.sessionID, readableDirectories)].map(shellQuote).join(" ")
+  const toolArgs = await readClaudeSessionToolArgs(input.runDir, input.sessionID)
+  const command = [claudeBinaryName, ...claudeResumeArgs(input.sessionID, readableDirectories, toolArgs)].map(shellQuote).join(" ")
   return openSessionCommand(command, input.targetDir, "claude session")
 }
 
-export function claudeResumeArgs(sessionID: string, readableDirectories: readonly string[]): string[] {
-  return [...readOnlyToolArgs, "--add-dir", ...readableDirectories, "--resume", sessionID]
+/** Reopens a finished step with the same tool envelope it ran with (read-only unless recorded otherwise). */
+export function claudeResumeArgs(sessionID: string, readableDirectories: readonly string[], toolArgs: readonly string[] = readOnlyToolArgs): string[] {
+  return [...toolArgs, "--add-dir", ...readableDirectories, "--resume", sessionID]
 }
 
 async function writeClaudeSessionDirectories(runDir: string, sessionID: string, directories: readonly string[]): Promise<void> {
@@ -573,6 +629,29 @@ async function readClaudeSessionDirectories(runDir: string, sessionID: string): 
     throw new Error(`invalid readable-directory metadata for Claude session ${sessionID}`)
   }
   return parsed
+}
+
+async function writeClaudeSessionToolArgs(runDir: string, sessionID: string, toolArgs: readonly string[]): Promise<void> {
+  await writeFile(claudeSessionToolArgsPath(runDir, sessionID), JSON.stringify(toolArgs))
+}
+
+/** Sessions recorded before tool envelopes were persisted were always read-only. */
+async function readClaudeSessionToolArgs(runDir: string, sessionID: string): Promise<string[]> {
+  let raw: string
+  try {
+    raw = await readFile(claudeSessionToolArgsPath(runDir, sessionID), "utf8")
+  } catch {
+    return [...readOnlyToolArgs]
+  }
+  const parsed: unknown = JSON.parse(raw)
+  if (!Array.isArray(parsed) || parsed.some((arg) => typeof arg !== "string" || arg.length === 0)) {
+    throw new Error(`invalid tool metadata for Claude session ${sessionID}`)
+  }
+  return parsed
+}
+
+function claudeSessionToolArgsPath(runDir: string, sessionID: string): string {
+  return join(runDir, "logs", `claude-${encodeURIComponent(sessionID)}-tools.json`)
 }
 
 function claudeSessionDirectoriesPath(runDir: string, sessionID: string): string {
