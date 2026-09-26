@@ -37,10 +37,13 @@ export type StepRunnerModel = {
   label: string
 }
 
-export const claudeCodeModelAliases = ["opus", "sonnet", "haiku"] as const
+export const claudeCodeModelAliases = ["opus", "sonnet", "haiku", "fable"] as const
+
+/** Levels accepted by the `claude` CLI's --effort flag, written as a `#<level>` model variant. */
+export const claudeCodeEffortLevels = ["low", "medium", "high", "xhigh", "max"] as const
 
 const claudeModelError =
-  "runner claude-code executes Anthropic models: use a CLI alias (opus, sonnet, haiku), a claude-* ID, or anthropic/<id>"
+  "runner claude-code executes Anthropic models: use a CLI alias (opus, sonnet, haiku, fable), a claude-* ID, or anthropic/<id>, optionally with #<effort> (low, medium, high, xhigh, max)"
 
 const definitions: Record<StepRunnerId, StepRunnerDefinition> = {
   opencode: {
@@ -72,7 +75,7 @@ const definitions: Record<StepRunnerId, StepRunnerDefinition> = {
       globalModelOverride: false,
       advisor: false,
     },
-    modelLabel: (model) => `claude-code/${model || "default"}`,
+    modelLabel: (model, variant) => `claude-code/${model || "default"}${variant ? `#${variant}` : ""}`,
   },
 }
 
@@ -95,9 +98,15 @@ export function normalizeStepRunnerModel(id: StepRunnerId, raw: string): string 
     return value
   }
 
-  const normalized = value.startsWith("anthropic/") ? value.slice("anthropic/".length) : value
+  const withoutProvider = value.startsWith("anthropic/") ? value.slice("anthropic/".length) : value
+  const variantIndex = withoutProvider.indexOf("#")
+  const normalized = variantIndex === -1 ? withoutProvider : withoutProvider.slice(0, variantIndex)
+  const effort = variantIndex === -1 ? undefined : withoutProvider.slice(variantIndex + 1)
+  if (effort !== undefined && !claudeCodeEffortLevels.includes(effort as (typeof claudeCodeEffortLevels)[number])) {
+    throw new Error(claudeModelError)
+  }
   if (claudeCodeModelAliases.includes(normalized as (typeof claudeCodeModelAliases)[number]) || /^claude-[^/#]+(?:-[^/#]+)*$/.test(normalized)) {
-    return normalized
+    return effort ? `${normalized}#${effort}` : normalized
   }
   throw new Error(claudeModelError)
 }
@@ -109,7 +118,7 @@ export function stepRunnerModel(id: StepRunnerId | undefined, model: string, var
     return { ...selected, label: runner.modelLabel(`${selected.providerID}/${selected.modelID}`, selected.variant) }
   }
   if (runner.id === "claude-code") {
-    return { providerID: runner.id, modelID: model || "default", label: runner.modelLabel(model) }
+    return { providerID: runner.id, modelID: model || "default", ...(variant ? { variant } : {}), label: runner.modelLabel(model, variant) }
   }
   const selected = parseOpenCodeModel(`${model}${variant ? `#${variant}` : ""}`)
   return { ...selected, label: runner.modelLabel(`${selected.providerID}/${selected.modelID}`, selected.variant) }

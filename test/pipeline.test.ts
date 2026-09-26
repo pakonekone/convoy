@@ -1113,6 +1113,9 @@ describe("claude-code runner steps", () => {
     })
 
     expect(steps[0]?.model).toBe("claude-opus-4-8")
+    const withEffort = agentSteps({ steps: [{ agent: "implementer", runner: "claude-code", model: "claude-opus-5-5#xhigh", reports: "none" }] })
+    expect(withEffort[0]?.model).toBe("claude-opus-5-5")
+    expect(withEffort[0]?.variant).toBe("xhigh")
     expect(() =>
       agentSteps({ steps: [{ agent: "bug-auditor", runner: "claude-code", model: "openai/gpt-5.6", reports: "none", diff: true }] }),
     ).toThrow("runner claude-code executes Anthropic models")
@@ -1151,6 +1154,15 @@ describe("claude-code runner steps", () => {
     const claude = steps.find((step) => step.name === "bugs-claude")
     expect(claude?.runner).toBe("claude-code")
     expect(claude?.readOnly).toBe(true)
+  })
+
+  test("rejects claude-code on a step that must emit the machine-readable quality score", () => {
+    expect(() =>
+      agentSteps({ steps: [{ agent: "quality-score-report", name: "score-report", runner: "claude-code", verify: true }] }),
+    ).toThrow(/can't emit the machine-readable quality score/)
+    expect(() =>
+      agentSteps({ steps: [{ agent: "bug-auditor", name: "consensus", runner: "claude-code", deliverable: "quality-score" }] }),
+    ).toThrow(/can't emit the machine-readable quality score/)
   })
 
   test("accepts claude-code on a verifying step, which keeps bash under the policy", () => {

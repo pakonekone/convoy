@@ -66,6 +66,15 @@ describe("normalizeStepRunnerModel", () => {
     expect(normalizeStepRunnerModel("claude-code", "opus")).toBe("opus")
     expect(normalizeStepRunnerModel("claude-code", "sonnet")).toBe("sonnet")
     expect(normalizeStepRunnerModel("claude-code", "haiku")).toBe("haiku")
+    expect(normalizeStepRunnerModel("claude-code", "fable")).toBe("fable")
+  })
+
+  test("keeps a CLI effort level as a #variant on claude-code models", () => {
+    expect(normalizeStepRunnerModel("claude-code", "opus#xhigh")).toBe("opus#xhigh")
+    expect(normalizeStepRunnerModel("claude-code", "anthropic/claude-fable-5-1#max")).toBe("claude-fable-5-1#max")
+    expect(() => normalizeStepRunnerModel("claude-code", "opus#turbo")).toThrow("runner claude-code executes Anthropic models")
+    expect(() => normalizeStepRunnerModel("claude-code", "opus#")).toThrow("runner claude-code executes Anthropic models")
+    expect(stepRunnerFor("claude-code").modelLabel("opus", "xhigh")).toBe("claude-code/opus#xhigh")
   })
 
   test("strips anthropic/ prefix for claude-code", () => {

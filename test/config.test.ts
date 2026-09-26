@@ -1327,7 +1327,8 @@ describe("runner field on steps", () => {
 
     expect(() => parse(`${prefix}openai/gpt-5.6`)).toThrow(message)
     expect(() => parse(`${prefix}anthropic/not-claude`)).toThrow(message)
-    expect(() => parse(`${prefix}opus#high`)).toThrow(message)
+    expect(() => parse(`${prefix}opus#turbo`)).toThrow(message)
+    expect(() => parse(`${prefix}opus#high`)).not.toThrow()
   })
 
   test("still requires provider/model for the default runner", () => {

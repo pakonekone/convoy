@@ -2327,7 +2327,7 @@ async function executeClaudeCodePhaseAttempt(input: PhaseAttemptInput): Promise<
   return {
     assistantText: result.assistantText,
     sessionID: result.sessionID,
-    model: stepRunnerFor(input.phase.runner).modelLabel(input.phase.model),
+    model: stepRunnerFor(input.phase.runner).modelLabel(input.phase.model, input.phase.variant),
     finish: result.finish,
     cost: result.cost,
     tokens: result.tokens,

@@ -263,6 +263,12 @@ describe("prompt and exact read-only envelope", () => {
     ])
   })
 
+  test("an effort variant becomes --effort after the model", () => {
+    const args = claudeArgs({ systemPromptPath: "/r/prompt.md", runDir: "/r", targetDir: "/repo", model: "opus", attachments: [], effort: "xhigh" })
+    expect(args.slice(-4)).toEqual(["--model", "opus", "--effort", "xhigh"])
+    expect(claudeArgs({ systemPromptPath: "/r/prompt.md", runDir: "/r", targetDir: "/repo", model: "opus", attachments: [] })).not.toContain("--effort")
+  })
+
   test("an empty model omits --model so the CLI default applies", () => {
     expect(claudeArgs({ systemPromptPath: "/r/prompt.md", runDir: "/r", targetDir: "/repo", model: "", attachments: [] })).not.toContain("--model")
   })

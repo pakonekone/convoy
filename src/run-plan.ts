@@ -171,7 +171,7 @@ function deepFreeze<T>(value: T): T {
 }
 
 export function plannedStepModel(step: AgentStep): string {
-  if (step.runner === "claude-code") return `claude-code/${step.model || "default"}`
+  if (step.runner === "claude-code") return `claude-code/${step.model || "default"}${step.variant ? `#${step.variant}` : ""}`
   return step.resolvedModel?.target ?? `${step.model}${step.variant ? `#${step.variant}` : ""}`
 }
 

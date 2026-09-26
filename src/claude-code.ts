@@ -104,8 +104,8 @@ export function ensureClaudeAvailable(pipeline: Pipeline, which: (bin: string) =
 }
 
 /** Display label for attempt lines and usage rows, mirroring provider/model formatting. */
-export function claudeModelLabel(model: string): string {
-  return stepRunnerFor("claude-code").modelLabel(model)
+export function claudeModelLabel(model: string, effort?: string): string {
+  return stepRunnerFor("claude-code").modelLabel(model, effort)
 }
 
 // ---------------------------------------------------------------------------
@@ -294,6 +294,8 @@ export function claudeArgs(input: {
   attachments: readonly FilePartInput[]
   /** The step's tool envelope; defaults to the read-only audit envelope. */
   toolArgs?: readonly string[]
+  /** The step's `#<effort>` variant, passed as --effort; absent keeps the CLI default. */
+  effort?: string
 }): string[] {
   const readableDirectories = claudeReadableDirectories(input.attachments, input.targetDir, input.runDir)
 
@@ -309,6 +311,7 @@ export function claudeArgs(input: {
     ...readableDirectories,
     ...(input.toolArgs ?? readOnlyToolArgs),
     ...(input.model ? ["--model", input.model] : []),
+    ...(input.effort ? ["--effort", input.effort] : []),
   ]
 }
 
@@ -436,6 +439,7 @@ export async function promptClaudePhase(input: {
     model: input.phase.model,
     attachments,
     toolArgs,
+    ...(input.phase.variant ? { effort: input.phase.variant } : {}),
   })
   const prompt = claudePrompt(input.prompt, attachments)
 
@@ -494,7 +498,7 @@ export async function promptClaudePhase(input: {
           ...(sessionID ? { sessionID } : {}),
           ...(result.cost !== undefined ? { cost: result.cost } : {}),
           ...(result.tokens ? { tokens: result.tokens } : {}),
-          model: claudeModelLabel(input.phase.model),
+          model: claudeModelLabel(input.phase.model, input.phase.variant),
         })
       }
       return {

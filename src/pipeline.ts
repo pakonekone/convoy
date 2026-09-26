@@ -348,7 +348,7 @@ export type AgentStepSpec = {
   model?: string
   /** Fans this step out into one concurrent, forced-read-only invocation per model. Mutually exclusive with `model`. */
   models?: string[]
-  /** Execution engine. Default is OpenCode; "claude-code" spawns the local `claude` CLI. */
+  /** Execution engine. Default is OpenCode; "claude-code" spawns the local `claude` CLI (`#<effort>` on its model maps to --effort). */
   runner?: "opencode" | StepRunner
   /**
    * Advising model consulted at this step's decision points, or `false` to run
@@ -1087,6 +1087,17 @@ function resolveAgentStepSpec(raw: string | AgentStepSpec, ctx: ResolveStepConte
       `pipeline "${ctx.input.name}": step ${ctx.position} ("${baseName}") uses runner: ${runnerDefinition.id}, which currently supports read-only audit steps only — agent "${agent.name}" can modify the repo`,
     )
   }
+  // The machine-readable score is emitted by Convoy from the structured fields
+  // an OpenCode step passes to write_report; the claude CLI has no such tool,
+  // so a Claude step could only ever fail the quality-score contract.
+  if (
+    runnerDefinition.id === "claude-code" &&
+    explicitDeliverableContract(spec, agent.name, Boolean(forced || agent.readOnly)).kind === "quality-score-report"
+  ) {
+    throw new Error(
+      `pipeline "${ctx.input.name}": step ${ctx.position} ("${baseName}") uses runner: ${runnerDefinition.id}, which can't emit the machine-readable quality score (it needs write_report); run it on an OpenCode model and keep Claude as an independent quality-scorer`,
+    )
+  }
   if (!runnerDefinition.capabilities.verifySteps && verify) {
     throw new Error(
       `pipeline "${ctx.input.name}": step ${ctx.position} ("${baseName}") uses runner: ${runnerDefinition.id}, which can't run commands — this step has verify: true and needs bash to check its claims`,
@@ -1136,7 +1147,7 @@ function resolveAgentStepSpec(raw: string | AgentStepSpec, ctx: ResolveStepConte
     const name = models ? `${baseName}__${slugifyModel(modelValue)}` : baseName
     ctx.claimName(name, models ? `${ctx.position}[${variantIndex + 1}]` : ctx.position)
 
-    const { model, variant } = runner ? { model: modelValue, variant: undefined } : splitModelVariant(modelValue)
+    const { model, variant } = runner && !modelValue ? { model: modelValue, variant: undefined } : splitModelVariant(modelValue)
     const advisorParts = advisor ? splitModelVariant(advisor) : undefined
     const step: AgentStep = {
       type: "agent",
