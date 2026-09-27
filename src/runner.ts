@@ -778,6 +778,7 @@ export async function run(options: RunOptions, deps: RunDeps = defaultRunDeps) {
         prompt: options.prompt,
         progress,
         signal: shutdown.signal,
+        ...(options.plan?.openspec?.changeIds ? { changeIds: options.plan.openspec.changeIds } : {}),
       })
     } else if (hookSet.pre.length > 0) {
       for (const name of hookPhaseNames("pre", hookSet.pre)) progress.phaseSkipped(name)
@@ -1080,6 +1081,7 @@ export async function run(options: RunOptions, deps: RunDeps = defaultRunDeps) {
       status: "success",
       progress,
       signal: shutdown.signal,
+      ...(options.plan?.openspec?.changeIds ? { changeIds: options.plan.openspec.changeIds } : {}),
       ...(runScoreResult ? { score: runScoreResult.score.score } : {}),
       ...(goalOutcome && pipeline.goalPlan
         ? {

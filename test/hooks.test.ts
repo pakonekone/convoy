@@ -121,6 +121,18 @@ describe("hooks", () => {
     expect(await readFile(join(context.targetDir, "nogoal.out"), "utf8")).toBe("unset")
   })
 
+  test("pre hooks receive the run's OpenSpec change ids as CONVOY_CHANGES", async () => {
+    const context = await hookContext()
+    await runHooks("pre", [{ command: "printf %s \"$CONVOY_CHANGES\" > changes.out" }], { ...context, changeIds: ["a", "b"] })
+    expect(await readFile(join(context.targetDir, "changes.out"), "utf8")).toBe("a,b")
+  })
+
+  test("hooks with no change ids see an empty CONVOY_CHANGES", async () => {
+    const context = await hookContext()
+    await runHooks("pre", [{ command: "printf %s \"$CONVOY_CHANGES\" > nochanges.out" }], context)
+    expect(await readFile(join(context.targetDir, "nochanges.out"), "utf8")).toBe("")
+  })
+
   test("fails on a non-zero hook unless continueOnError is true", async () => {
     const context = await hookContext()
 

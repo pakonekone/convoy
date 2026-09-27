@@ -21,6 +21,8 @@ export type RunHookContext = {
   signal?: AbortSignal
   /** Consensus quality score, when the pipeline ended in a quality-score-report step. */
   score?: number
+  /** OpenSpec change ids the run resolved, when it targeted one or more active changes. */
+  changeIds?: readonly string[]
   /** Outcome of the goal loop, when these post-hooks run after one. */
   goal?: GoalHookOutcome
   /**
@@ -188,6 +190,7 @@ async function runHookCommand(stage: HookStage, hook: HookSpec, context: RunHook
     CONVOY_RUN_DIR: context.workspace.dir,
     CONVOY_TARGET_DIR: context.targetDir,
     CONVOY_PROMPT_FILE: join(context.workspace.dir, "prd.md"),
+    CONVOY_CHANGES: (context.changeIds ?? []).join(","),
     ...(context.status ? { CONVOY_RUN_STATUS: context.status } : {}),
     ...(context.score !== undefined ? { CONVOY_RUN_SCORE: String(context.score) } : {}),
     ...(context.goal
